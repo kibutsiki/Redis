@@ -13,10 +13,15 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 // C++
+#include <cstddef>
+#include <cstdint>
 #include <string>
-#include <map>
 #include <vector>
+// project
+#include "hashtable.h"
 
+#define container_of(ptr, T, member) \
+    ((T*)((char*)(ptr) - offsetof(T, member)))
 
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
@@ -152,24 +157,91 @@ struct Response{
 };
 
 
-static std::map<std::string, std::string> g_data{};
+static struct {
+    HMap db;
+} g_data;
 
-static void do_request(std::vector<std::string> &cmd, Response &out){
-    if(cmd.size() == 2 && cmd[0] == "get"){
-        auto it = g_data.find(cmd[1]);
-        if(it == g_data.end()){
-            out.status = RES_NX;
-            return;
-        }
+struct Entry {
+    HNode node;
+    std::string key;
+    std::string value;
+};
 
-        const std::string &val = it->second;
-        out.data.assign(val.begin(), val.end());
-    }else if(cmd.size() == 3 && cmd[0] == "set"){
-        g_data[cmd[1]].swap(cmd[2]);
-    }else if(cmd.size() == 2 && cmd[0] == "del"){
-        g_data.erase(cmd[1]);
-    }else{
-        out.status = RES_ERR; //not correct command.
+static bool entry_eq(HNode* lhs, HNode* rhs) {
+    Entry* left = container_of(lhs, Entry, node);
+    Entry* right = container_of(rhs, Entry, node);
+    return left->key == right->key;
+}
+
+static uint64_t str_hash(const uint8_t* data, std::size_t len) {
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (std::size_t i = 0; i < len; ++i) {
+        hash ^= data[i];
+        hash *= 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+static HNode* make_key_node(const std::string& key, Entry& entry) {
+    entry.key = key;
+    entry.node.hcode = str_hash(
+        reinterpret_cast<const uint8_t*>(entry.key.data()),
+        entry.key.size()
+    );
+    return &entry.node;
+}
+
+static void do_get(std::vector<std::string>& cmd, Response& out) {
+    Entry key;
+    make_key_node(cmd[1], key);
+
+    HNode* node = hm_lookup(&g_data.db, &key.node, entry_eq);
+    if (node == nullptr) {
+        out.status = RES_NX;
+        return;
+    }
+
+    const Entry* entry = container_of(node, Entry, node);
+    out.data.assign(entry->value.begin(), entry->value.end());
+}
+
+static void do_set(std::vector<std::string>& cmd, Response&) {
+    Entry key;
+    make_key_node(cmd[1], key);
+
+    HNode* node = hm_lookup(&g_data.db, &key.node, entry_eq);
+    if (node != nullptr) {
+        Entry* entry = container_of(node, Entry, node);
+        entry->value.swap(cmd[2]);
+        return;
+    }
+
+    Entry* entry = new Entry();
+    entry->key.swap(key.key);
+    entry->value.swap(cmd[2]);
+    entry->node.hcode = key.node.hcode;
+    hm_insert(&g_data.db, &entry->node);
+}
+
+static void do_del(std::vector<std::string>& cmd, Response&) {
+    Entry key;
+    make_key_node(cmd[1], key);
+
+    HNode* node = hm_delete(&g_data.db, &key.node, entry_eq);
+    if (node != nullptr) {
+        delete container_of(node, Entry, node);
+    }
+}
+
+static void do_request(std::vector<std::string>& cmd, Response& out) {
+    if (cmd.size() == 2 && cmd[0] == "get") {
+        do_get(cmd, out);
+    } else if (cmd.size() == 3 && cmd[0] == "set") {
+        do_set(cmd, out);
+    } else if (cmd.size() == 2 && cmd[0] == "del") {
+        do_del(cmd, out);
+    } else {
+        out.status = RES_ERR;
     }
 }
 
