@@ -67,7 +67,9 @@ struct Conn {
 // append to the back
 static void
 buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
-    buf.insert(buf.end(), data, data + len);
+    if (len != 0) {
+        buf.insert(buf.end(), data, data + len);
+    }
 }
 
 
@@ -145,17 +147,16 @@ static int32_t parse_req(const uint8_t *data, size_t size, std::vector<std::stri
     return 0;
 }
 
-enum {
-    RES_OK = 0,
-    RES_ERR = 1,
-    RES_NX = 2,
-};
+using Buffer = std::vector<uint8_t>;
 
-struct Response{
-    uint32_t status{};
-    std::vector<uint8_t> data;
+enum : uint8_t {
+    TAG_NIL = 0,
+    TAG_ERR = 1,
+    TAG_STR = 2,
+    TAG_INT = 3,
+    TAG_DBL = 4,
+    TAG_ARR = 5,
 };
-
 
 static struct {
     HMap db;
@@ -191,21 +192,48 @@ static HNode* make_key_node(const std::string& key, Entry& entry) {
     return &entry.node;
 }
 
-static void do_get(std::vector<std::string>& cmd, Response& out) {
+static void out_nil(Buffer& out) {
+    uint8_t tag = TAG_NIL;
+    buf_append(out, &tag, 1);
+}
+
+static void out_str(Buffer& out, const char* s, size_t size) {
+    uint8_t tag = TAG_STR;
+    buf_append(out, &tag, 1);
+    uint32_t len = static_cast<uint32_t>(size);
+    buf_append(out, reinterpret_cast<const uint8_t*>(&len), 4);
+    buf_append(out, reinterpret_cast<const uint8_t*>(s), size);
+}
+
+static void out_int(Buffer& out, int64_t value) {
+    uint8_t tag = TAG_INT;
+    buf_append(out, &tag, 1);
+    buf_append(out, reinterpret_cast<const uint8_t*>(&value), 8);
+}
+
+static void out_err(Buffer& out, const char* message) {
+    uint8_t tag = TAG_ERR;
+    buf_append(out, &tag, 1);
+    uint32_t len = static_cast<uint32_t>(strlen(message));
+    buf_append(out, reinterpret_cast<const uint8_t*>(&len), 4);
+    buf_append(out, reinterpret_cast<const uint8_t*>(message), len);
+}
+
+static void do_get(std::vector<std::string>& cmd, Buffer& out) {
     Entry key;
     make_key_node(cmd[1], key);
 
     HNode* node = hm_lookup(&g_data.db, &key.node, entry_eq);
     if (node == nullptr) {
-        out.status = RES_NX;
+        out_nil(out);
         return;
     }
 
     const Entry* entry = container_of(node, Entry, node);
-    out.data.assign(entry->value.begin(), entry->value.end());
+    out_str(out, entry->value.data(), entry->value.size());
 }
 
-static void do_set(std::vector<std::string>& cmd, Response&) {
+static void do_set(std::vector<std::string>& cmd, Buffer& out) {
     Entry key;
     make_key_node(cmd[1], key);
 
@@ -213,6 +241,7 @@ static void do_set(std::vector<std::string>& cmd, Response&) {
     if (node != nullptr) {
         Entry* entry = container_of(node, Entry, node);
         entry->value.swap(cmd[2]);
+        out_nil(out);
         return;
     }
 
@@ -221,9 +250,10 @@ static void do_set(std::vector<std::string>& cmd, Response&) {
     entry->value.swap(cmd[2]);
     entry->node.hcode = key.node.hcode;
     hm_insert(&g_data.db, &entry->node);
+    out_nil(out);
 }
 
-static void do_del(std::vector<std::string>& cmd, Response&) {
+static void do_del(std::vector<std::string>& cmd, Buffer& out) {
     Entry key;
     make_key_node(cmd[1], key);
 
@@ -231,9 +261,10 @@ static void do_del(std::vector<std::string>& cmd, Response&) {
     if (node != nullptr) {
         delete container_of(node, Entry, node);
     }
+    out_int(out, node != nullptr ? 1 : 0);
 }
 
-static void do_request(std::vector<std::string>& cmd, Response& out) {
+static void do_request(std::vector<std::string>& cmd, Buffer& out) {
     if (cmd.size() == 2 && cmd[0] == "get") {
         do_get(cmd, out);
     } else if (cmd.size() == 3 && cmd[0] == "set") {
@@ -241,17 +272,9 @@ static void do_request(std::vector<std::string>& cmd, Response& out) {
     } else if (cmd.size() == 2 && cmd[0] == "del") {
         do_del(cmd, out);
     } else {
-        out.status = RES_ERR;
+        out_err(out, "bad request");
     }
 }
-
-static void make_response(const Response &resp, std::vector<uint8_t> &out){
-    uint32_t resp_len = 4 + (uint32_t) resp.data.size();
-    buf_append(out, (const uint8_t *)&resp_len, 4);
-    buf_append(out, (const uint8_t *)&resp.status, 4);
-    buf_append(out, resp.data.data(), resp.data.size());
-}
-
 
 static bool try_one_request(Conn *conn) {
     if (conn->incoming.size() < 4) {
@@ -276,9 +299,13 @@ static bool try_one_request(Conn *conn) {
         conn->want_close = true;
         return false;
     }
-    Response resp;
-    do_request(cmd, resp);
-    make_response(resp, conn->outgoing);
+    size_t response_start = conn->outgoing.size();
+    uint32_t response_len = 0;
+    buf_append(conn->outgoing, reinterpret_cast<const uint8_t*>(&response_len), 4);
+    size_t payload_start = conn->outgoing.size();
+    do_request(cmd, conn->outgoing);
+    response_len = static_cast<uint32_t>(conn->outgoing.size() - payload_start);
+    memcpy(conn->outgoing.data() + response_start, &response_len, 4);
 
     buf_consume(conn->incoming, 4 + len);
     return true;
