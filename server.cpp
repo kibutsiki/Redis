@@ -149,6 +149,14 @@ static int32_t parse_req(const uint8_t *data, size_t size, std::vector<std::stri
 
 using Buffer = std::vector<uint8_t>;
 
+static void buf_append_u8(Buffer& buf, uint8_t data) {
+    buf.push_back(data);
+}
+
+static void buf_append_u32(Buffer& buf, uint32_t data) {
+    buf_append(buf, reinterpret_cast<const uint8_t*>(&data), 4);
+}
+
 enum : uint8_t {
     TAG_NIL = 0,
     TAG_ERR = 1,
@@ -157,6 +165,30 @@ enum : uint8_t {
     TAG_DBL = 4,
     TAG_ARR = 5,
 };
+
+static void out_err(Buffer& out, const char* message);
+
+static size_t response_begin(Buffer& out) {
+    size_t header = out.size();
+    buf_append_u32(out, 0);
+    return header;
+}
+
+static size_t response_size(const Buffer& out, size_t header) {
+    return out.size() - header - 4;
+}
+
+static void response_end(Buffer& out, size_t header) {
+    size_t message_size = response_size(out, header);
+    if (message_size >= k_max_msg) {
+        out.resize(header + 4);
+        out_err(out, "response is too big");
+        message_size = response_size(out, header);
+    }
+
+    uint32_t length = static_cast<uint32_t>(message_size);
+    memcpy(out.data() + header, &length, 4);
+}
 
 static struct {
     HMap db;
@@ -193,29 +225,24 @@ static HNode* make_key_node(const std::string& key, Entry& entry) {
 }
 
 static void out_nil(Buffer& out) {
-    uint8_t tag = TAG_NIL;
-    buf_append(out, &tag, 1);
+    buf_append_u8(out, TAG_NIL);
 }
 
 static void out_str(Buffer& out, const char* s, size_t size) {
-    uint8_t tag = TAG_STR;
-    buf_append(out, &tag, 1);
-    uint32_t len = static_cast<uint32_t>(size);
-    buf_append(out, reinterpret_cast<const uint8_t*>(&len), 4);
+    buf_append_u8(out, TAG_STR);
+    buf_append_u32(out, static_cast<uint32_t>(size));
     buf_append(out, reinterpret_cast<const uint8_t*>(s), size);
 }
 
 static void out_int(Buffer& out, int64_t value) {
-    uint8_t tag = TAG_INT;
-    buf_append(out, &tag, 1);
+    buf_append_u8(out, TAG_INT);
     buf_append(out, reinterpret_cast<const uint8_t*>(&value), 8);
 }
 
 static void out_err(Buffer& out, const char* message) {
-    uint8_t tag = TAG_ERR;
-    buf_append(out, &tag, 1);
+    buf_append_u8(out, TAG_ERR);
     uint32_t len = static_cast<uint32_t>(strlen(message));
-    buf_append(out, reinterpret_cast<const uint8_t*>(&len), 4);
+    buf_append_u32(out, len);
     buf_append(out, reinterpret_cast<const uint8_t*>(message), len);
 }
 
@@ -299,13 +326,9 @@ static bool try_one_request(Conn *conn) {
         conn->want_close = true;
         return false;
     }
-    size_t response_start = conn->outgoing.size();
-    uint32_t response_len = 0;
-    buf_append(conn->outgoing, reinterpret_cast<const uint8_t*>(&response_len), 4);
-    size_t payload_start = conn->outgoing.size();
+    size_t response_header = response_begin(conn->outgoing);
     do_request(cmd, conn->outgoing);
-    response_len = static_cast<uint32_t>(conn->outgoing.size() - payload_start);
-    memcpy(conn->outgoing.data() + response_start, &response_len, 4);
+    response_end(conn->outgoing, response_header);
 
     buf_consume(conn->incoming, 4 + len);
     return true;
