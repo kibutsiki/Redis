@@ -246,6 +246,23 @@ static void out_err(Buffer& out, const char* message) {
     buf_append(out, reinterpret_cast<const uint8_t*>(message), len);
 }
 
+static void out_arr(Buffer& out, uint32_t count) {
+    buf_append_u8(out, TAG_ARR);
+    buf_append_u32(out, count);
+}
+
+static bool cb_keys(HNode* node, void* arg) {
+    Buffer& out = *static_cast<Buffer*>(arg);
+    const Entry* entry = container_of(node, Entry, node);
+    out_str(out, entry->key.data(), entry->key.size());
+    return true;
+}
+
+static void do_keys(std::vector<std::string>&, Buffer& out) {
+    out_arr(out, static_cast<uint32_t>(hm_size(&g_data.db)));
+    hm_foreach(&g_data.db, cb_keys, &out);
+}
+
 static void do_get(std::vector<std::string>& cmd, Buffer& out) {
     Entry key;
     make_key_node(cmd[1], key);
@@ -292,7 +309,9 @@ static void do_del(std::vector<std::string>& cmd, Buffer& out) {
 }
 
 static void do_request(std::vector<std::string>& cmd, Buffer& out) {
-    if (cmd.size() == 2 && cmd[0] == "get") {
+    if (cmd.size() == 1 && cmd[0] == "keys") {
+        do_keys(cmd, out);
+    } else if (cmd.size() == 2 && cmd[0] == "get") {
         do_get(cmd, out);
     } else if (cmd.size() == 3 && cmd[0] == "set") {
         do_set(cmd, out);
