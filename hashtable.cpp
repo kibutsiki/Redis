@@ -124,3 +124,19 @@ std::size_t hm_size(HMap* hmap) {
 
     return hmap->newer.size + hmap->older.size;
 }
+
+void hm_foreach(HMap* hmap, HForeach callback, void* arg) {
+    if (hmap == nullptr || callback == nullptr) {
+        return;
+    }
+
+    for (Htab* table : {&hmap->newer, &hmap->older}) {
+        for (HNode* bucket : table->tab) {
+            for (HNode* node = bucket; node != nullptr; node = node->next) {
+                if (!callback(node, arg)) {
+                    return;
+                }
+            }
+        }
+    }
+}
