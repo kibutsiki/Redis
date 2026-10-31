@@ -49,3 +49,20 @@ Node* node_detach(Node* node) {
     *victim = *node;
     return victim;
 }
+
+Node* tree_delete(Node* node, NodeCompare cmp, void* key) {
+    if (node == nullptr || cmp == nullptr) {
+        return node;
+    }
+
+    const int32_t comparison = cmp(node, key);
+    if (comparison < 0) {
+        node->right = tree_delete(node->right, cmp, key);
+    } else if (comparison > 0) {
+        node->left = tree_delete(node->left, cmp, key);
+    } else {
+        return node_detach(node);
+    }
+
+    return node;
+}
