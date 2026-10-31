@@ -33,3 +33,19 @@ bool tree_insert(Node** from, Node* node, NodeCompare cmp, void* key) {
     *position = node;
     return true;
 }
+
+Node* node_detach(Node* node) {
+    if (node == nullptr || node->right == nullptr) {
+        return node == nullptr ? nullptr : node->left;
+    }
+
+    Node** to_victim = &node->right;
+    while ((*to_victim)->left != nullptr) {
+        to_victim = &(*to_victim)->left;
+    }
+
+    Node* victim = *to_victim;
+    *to_victim = victim->right;
+    *victim = *node;
+    return victim;
+}
