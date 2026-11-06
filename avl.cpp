@@ -25,6 +25,28 @@ void avl_update(AVLNode* node) {
     node->height = 1 + std::max(avl_height(node->left), avl_height(node->right));
 }
 
+AVLNode* avl_rot_left(AVLNode* node) {
+    if (node == nullptr || node->right == nullptr) {
+        return node;
+    }
+
+    AVLNode* new_node = node->right;
+    AVLNode* inner = new_node->left;
+
+    node->right = inner;
+    if (inner != nullptr) {
+        inner->parent = node;
+    }
+
+    new_node->left = node;
+    new_node->parent = node->parent;
+    node->parent = new_node;
+
+    avl_update(node);
+    avl_update(new_node);
+    return new_node;
+}
+
 Node** tree_search(Node** from, NodeCompare cmp, void* key) {
     if (from == nullptr || cmp == nullptr) {
         return nullptr;
