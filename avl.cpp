@@ -1,5 +1,30 @@
 #include "avl.h"
 
+#include <algorithm>
+
+void avl_init(AVLNode* node) {
+    if (node == nullptr) {
+        return;
+    }
+
+    node->parent = nullptr;
+    node->left = nullptr;
+    node->right = nullptr;
+    node->height = 1;
+}
+
+uint32_t avl_height(const AVLNode* node) {
+    return node == nullptr ? 0 : node->height;
+}
+
+void avl_update(AVLNode* node) {
+    if (node == nullptr) {
+        return;
+    }
+
+    node->height = 1 + std::max(avl_height(node->left), avl_height(node->right));
+}
+
 Node** tree_search(Node** from, NodeCompare cmp, void* key) {
     if (from == nullptr || cmp == nullptr) {
         return nullptr;
