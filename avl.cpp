@@ -41,6 +41,13 @@ AVLNode* avl_rot_left(AVLNode* node) {
     new_node->left = node;
     new_node->parent = node->parent;
     node->parent = new_node;
+    if (new_node->parent != nullptr) {
+        if (new_node->parent->left == node) {
+            new_node->parent->left = new_node;
+        } else if (new_node->parent->right == node) {
+            new_node->parent->right = new_node;
+        }
+    }
 
     avl_update(node);
     avl_update(new_node);
@@ -63,6 +70,13 @@ AVLNode* avl_rot_right(AVLNode* node) {
     new_node->right = node;
     new_node->parent = node->parent;
     node->parent = new_node;
+    if (new_node->parent != nullptr) {
+        if (new_node->parent->left == node) {
+            new_node->parent->left = new_node;
+        } else if (new_node->parent->right == node) {
+            new_node->parent->right = new_node;
+        }
+    }
 
     avl_update(node);
     avl_update(new_node);
