@@ -20,6 +20,7 @@ void avl_init(AVLNode* node);
 uint32_t avl_height(const AVLNode* node);
 void avl_update(AVLNode* node);
 AVLNode* avl_rot_left(AVLNode* node);
+AVLNode* avl_rot_right(AVLNode* node);
 
 Node** tree_search(Node** from, NodeCompare cmp, void* key);
 bool tree_insert(Node** from, Node* node, NodeCompare cmp, void* key);

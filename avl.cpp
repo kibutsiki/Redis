@@ -47,6 +47,28 @@ AVLNode* avl_rot_left(AVLNode* node) {
     return new_node;
 }
 
+AVLNode* avl_rot_right(AVLNode* node) {
+    if (node == nullptr || node->left == nullptr) {
+        return node;
+    }
+
+    AVLNode* new_node = node->left;
+    AVLNode* inner = new_node->right;
+
+    node->left = inner;
+    if (inner != nullptr) {
+        inner->parent = node;
+    }
+
+    new_node->right = node;
+    new_node->parent = node->parent;
+    node->parent = new_node;
+
+    avl_update(node);
+    avl_update(new_node);
+    return new_node;
+}
+
 Node** tree_search(Node** from, NodeCompare cmp, void* key) {
     if (from == nullptr || cmp == nullptr) {
         return nullptr;
